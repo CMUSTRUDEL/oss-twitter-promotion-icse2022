@@ -29,9 +29,9 @@ The artifact consists of three main parts:
 - R script
 
    *analysis_publish_release.Rmd* contains the script used to generate result and figures, you can find more detailed instructions in the script.
-- Figure
+- Figures
 
-   Folder figure contains the pdfs for figure 2 in the appendix, you can also generate them yourself by using the *analysis_publish_release.Rmd* script
+   Folder *figure* contains the pdfs for figure 2 in the appendix, you can also generate them yourself by using the *analysis_publish_release.Rmd* script
 
 
 # Instruction
