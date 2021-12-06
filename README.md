@@ -34,7 +34,7 @@ The artifact consists of three main parts:
    Folder figure contains the pdfs for figure 2 in the appendix, you can also generate them yourself by using the *analysis_publish_release.Rmd* script
 
 
-# Instructions
+# Instruction
 To generate table 2, 3 and figure 2 in appendix, run script *analysis_publish_release.Rmd*, you can find more detailed instructions in the script.
 
 # Contact
