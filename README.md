@@ -2,6 +2,18 @@
 This research artifact accompanies our ICSE 2022 paper "'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors". If you use the artifact, please consider citing:
 
 
+      @inproceedings{Fang2022,
+        author = {Fang, Hongbo and 
+            Lamba, Hemank and 
+            Herbsleb, James and 
+            Vasilescu, Bogdan},
+        title = {'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors},
+        booktitle = {Proceedings of the 44th International Conference on Software Engineering (ICSE) 2022, Pittsburgh, USA},
+        organization = {IEEE},
+        year = {2022},
+      }
+
+
 The artifact consists of three main parts:
 - Data
 
@@ -20,3 +32,10 @@ The artifact consists of three main parts:
 - Figure
 
    Folder figure contains the pdfs for figure 2 in the appendix, you can also generate them yourself by using the *analysis_publish_release.Rmd* script
+
+
+# Instructions
+To generate table 2, 3 and figure 2 in appendix, run script *analysis_publish_release.Rmd*, you can find more detailed instructions in the script.
+
+# Contact
+If you have any questions regarding this replication package, please contact Hongbo Fang (hongbofa@andrew.cmu.edu), who at the time of the package creation is a phd student at Institute of Software Research, School of Computer Science at Carnegie Mellon university.
