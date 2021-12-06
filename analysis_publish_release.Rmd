@@ -1,0 +1,595 @@
+### Library import
+```{r}
+library(stats)
+library(lme4)
+library(readr)
+library(ggplot2)
+library(stargazer)
+library(multiwayvcov)
+library(lmtest)
+library(MuMIn)
+library(lmerTest)
+library(survival)
+library(ggpubr)
+library(survminer)
+library(car)
+library(coxme)
+```
+
+### Regression for attraction effects (Generate Table 2)
+### Data load and process
+```{r}
+
+# Read data
+regression_data = read_csv('./data/regression_attraction_effect.csv', col_types = cols(repo_slug = col_character(), period_duration = col_character(), burst_id = col_character(), time_day_index = col_character()))
+
+
+
+# Change the format of the data
+
+
+regression_data$control_group_flag = as.logical(regression_data$control_group_flag) # indicates whether the repository is in control group
+regression_data$post_period_flag = as.logical(regression_data$post_period_flag) # indicates whether the period is post-treatment
+regression_data$promotion_burst_flag = as.logical(regression_data$promotion_burst_flag) # indicates whether most of the tweets in burst is promotion-oriented (i.e. point to project homepage)
+
+
+regression_data$repo_has_release_1_day_after_burst_start_flag = as.logical(regression_data$repo_has_release_1_day_after_burst_start_flag) # indicates whether the repository has official release within 24-hour after the start of the period.
+
+regression_data$repo_has_release_during_period_flag = as.logical(regression_data$repo_has_release_during_period_flag) # indicates whether the repository has offical release during the period, this variable ensures we capture all release happened within the period under observation
+regression_data$repo_has_release_flag = regression_data$repo_has_release_during_period_flag | regression_data$repo_has_release_1_day_after_burst_start_flag # a repository is identified as having official release shortly after the tweet if i) it has release within 24-hour after the start of the period; ii) or it has release during the period=, which can last for several days
+
+
+regression_data$repo_went_to_trending_1_day_after_burst_start_flag = as.logical(regression_data$repo_went_to_trending_1_day_after_burst_start_flag) # analogous to has_official release, indicates whether the repository is shown in the github trending page within 24-hour after the start of the period
+regression_data$repo_went_to_trending_during_period_flag = as.logical(regression_data$repo_went_to_trending_during_period_flag) 
+regression_data$repo_went_to_trending_flag = regression_data$repo_went_to_trending_during_period_flag | regression_data$repo_went_to_trending_1_day_after_burst_start_flag
+
+
+
+
+# Get the interaction of treatment and project release information
+regression_data$repo_has_release_treatment_flag = regression_data$post_period_flag & regression_data$repo_has_release_flag
+# 'repo_has_release_treatment_flag' corresponds to variable 'Had official release' in table 2, note it only takes effect at post-treatment period, because whatever effect release have before the treatment should already be captured (and cancelled out in the analysis) by propensity score matching
+
+
+# Get the interaction of treatment and git trending information
+regression_data$repo_trending_treatment_flag = regression_data$post_period_flag & regression_data$repo_went_to_trending_flag
+# 'repo_trending_treatment_flag' corresponds to variable 'IsGitHubtrending' in table 2, similar it only takes effect at post-treatment period
+
+
+# Get the interaction of treatment and tweet characteristics
+regression_data$treatment_flag =  (regression_data$control_group_flag == FALSE) # indicates whether the repository being in treatment group, corresponds to 'is treated group?' variable in table 2
+regression_data$treatment_and_post_flag =  (regression_data$treatment_flag == TRUE & regression_data$post_period_flag == TRUE) # interaction between 'post-period flag' and 'treatment-group flag', corresponds to 's treated group? : Is post-treatment?' variable in table 2
+
+regression_data$repo_google_hit_overall_scale_treatment = regression_data$google_search_burst_duration_hit
+
+regression_data$twitter_total_like_count_of_burst_tweet_and_treatment = regression_data$twitter_total_like_count_of_burst_tweet
+regression_data$original_tweet_without_reply_count_and_treatment = regression_data$original_tweet_without_reply_count
+regression_data$total_retweet_in_burst_count_and_treatment = regression_data$total_retweet_in_burst_count
+regression_data$burst_average_length_and_treatment = regression_data$burst_average_length
+regression_data$more_than_half_hashtag_flag_and_treatment = as.logical(regression_data$more_than_half_hashtag_flag)
+
+regression_data$burst_promotion_flag_and_treatment = regression_data$promotion_burst_flag
+
+regression_data[regression_data$treatment_and_post_flag == FALSE,]$twitter_total_like_count_of_burst_tweet_and_treatment <- 0 # corresponds to 'Number of likes' variable in table 2 (note we set the value to 0 if 'treatment_and_post_flag == FALSE', which corresponds to the interaction in table 2, see footnote 1 of table 2 for more details)
+regression_data[regression_data$treatment_and_post_flag == FALSE,]$original_tweet_without_reply_count_and_treatment <- 0 # corresponds to 'Number of original tweets' variable in table 2
+regression_data[regression_data$treatment_and_post_flag == FALSE,]$total_retweet_in_burst_count_and_treatment <- 0 # corresponds to 'Number of retweets' variable in table 2
+regression_data[regression_data$treatment_and_post_flag == FALSE,]$burst_promotion_flag_and_treatment <- FALSE # corresponds to 'Is promotional' variable in table 2
+regression_data[regression_data$post_period_flag == FALSE, ]$repo_google_hit_overall_scale_treatment <- 0 # corresponds to 'Number of Google search results' variable in table 2, note because both control (i.e. not tweeted) repositories and treatment (i.e. tweeted) repositories can appear in google search result, so we only set the value in all pre-treatment period to 0 (because pre-treatment period trend has already been captured by propensity score matching)
+regression_data[regression_data$treatment_and_post_flag == FALSE,]$more_than_half_hashtag_flag_and_treatment <- FALSE # corresponds to 'Has hashtags' variable in table 2
+
+
+# Create time-cohort and repo-cohort effects
+regression_data$time_cohort_effect = paste(as.character(regression_data$time_day_index), as.character(regression_data$burst_id), sep = '-')
+regression_data$repo_cohort_effect = paste(as.character(regression_data$repo_slug), as.character(regression_data$burst_id), sep = '-')
+
+# Select 3-day as the length of pre/post treatment period(i.e. we measure the number of star and new committers change 3-day before and 3-day after the tweet treatment)
+regression_data_3_day_period = subset(regression_data, period_duration == 'Standard_Period')
+regression_data_30_day_period = subset(regression_data, period_duration == '30_Period') # 30-day period data is not used in the final analysis
+
+
+```
+
+### Remove outliers for 3-day period (Generate Table 2)
+```{r}
+# Remove samples with extreme values in certain variables
+regression_data_3_day_no_outlier = subset(regression_data_3_day_period, 
+                                                                      outlier_flag == 0   # a flag indicating high-leverage data points at the repository level, for example, the repository received too many stars at the period under study, value equals 0 indicates not a high-leverage point
+                                                                    & original_tweet_without_reply_count < exp(2) # keep tweet bursts (and its mentioned repositories) if the burst contains no more than exp(2) original tweets
+                                                                    & total_retweet_in_burst_count < exp(4) # keep tweet bursts (and its mentioned repositories) if the burst contains no more than exp(4) retweets
+                                                                    & burst_duration_in_hours < exp(6) # keep tweet bursts (and its mentioned repositories) if the burst lasts less than exp(6) hours
+                                                                    & twitter_total_like_count_of_burst_tweet < exp(6) # keep tweet bursts (and its mentioned repositories) if the burst has no more than exp(6) likes
+                                                                      )
+
+
+regression_data_3_day_no_outlier_author_set = subset(regression_data_3_day_no_outlier, more_than_half_committer_burst_flag != -1 & any_committer_burst_flag != -1) # select a subsample of tweets (and its mentioned repositories and corresponding controls) of which most of its tweet authors have their github account identified, used to measure whether the tweet author is also the existing committers of the project
+
+regression_data_3_day_no_outlier_author_set$more_than_half_committer_burst_flag_and_treatment = as.logical(regression_data_3_day_no_outlier_author_set$more_than_half_committer_burst_flag)
+regression_data_3_day_no_outlier_author_set[regression_data_3_day_no_outlier_author_set$treatment_and_post_flag == FALSE,]$more_than_half_committer_burst_flag_and_treatment <- FALSE
+# corresponds to 'Is from committers' variable in table 2
+
+
+
+```
+
+
+###Regression for stars (3-day) (Generate Table 2)
+```{r}
+
+# Model I in table 2
+model_all_star_3_day = lmer(log(mentioned_repo_star_count_this_period + 1)
+                            ~ post_period_flag
+                            + treatment_flag
+                            + treatment_and_post_flag
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+                            
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                            ,REML = FALSE
+                           ,data = regression_data_3_day_no_outlier)
+vif(model_all_star_3_day)
+summary(model_all_star_3_day)
+r.squaredGLMM(model_all_star_3_day)
+
+
+# Model II in table 2
+model_all_star_3_day_with_tweet_features_and_size = lmer(log(mentioned_repo_star_count_this_period + 1)
+                            ~ post_period_flag
+                            + treatment_flag
+
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+
+                            + more_than_half_hashtag_flag_and_treatment
+                            + burst_promotion_flag_and_treatment
+
+                            + log(twitter_total_like_count_of_burst_tweet_and_treatment + 1)
+                            + log(original_tweet_without_reply_count_and_treatment + 1)
+                            + log(total_retweet_in_burst_count_and_treatment + 1)
+
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                            ,REML = FALSE
+                           ,data = regression_data_3_day_no_outlier)
+
+vif(model_all_star_3_day_with_tweet_features_and_size)
+summary(model_all_star_3_day_with_tweet_features_and_size)
+r.squaredGLMM(model_all_star_3_day_with_tweet_features_and_size)
+
+# Model III in table 2
+model_all_star_3_day_with_tweet_features_size_and_author = lmer(log(mentioned_repo_star_count_this_period + 1)
+                            ~ post_period_flag
+                            + treatment_flag
+
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+
+                            + more_than_half_hashtag_flag_and_treatment
+                            + burst_promotion_flag_and_treatment
+
+
+                            + log(twitter_total_like_count_of_burst_tweet_and_treatment + 1)
+                            + log(original_tweet_without_reply_count_and_treatment + 1)
+                            + log(total_retweet_in_burst_count_and_treatment + 1)
+                            
+
+                            + more_than_half_committer_burst_flag_and_treatment
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                            ,REML = FALSE
+                            ,data = regression_data_3_day_no_outlier_author_set)
+vif(model_all_star_3_day_with_tweet_features_size_and_author)
+summary(model_all_star_3_day_with_tweet_features_size_and_author)
+r.squaredGLMM(model_all_star_3_day_with_tweet_features_size_and_author)
+```
+
+###Regression for committers (Generate Table 2)
+```{r}
+
+# Variable name in the model and its name in the paper:
+# 
+# post_period_flag: Is post-treatment
+# treatment_flag: Is treated group?
+# treatment_and_post_flag: Is treated group? : Is post-treatment?
+# repo_google_hit_overall_scale_treatment: Number of Google search results
+# repo_has_release_treatment_flag: Had official release
+# repo_trending_treatment_flag: Is GitHub trending
+# burst_duration_in_hours: Burst duration
+# more_than_half_hashtag_flag_and_treatment: Has hashtags
+# burst_promotion_flag_and_treatment: Is promotional
+# twitter_total_like_count_of_burst_tweet_and_treatment: Number of likes
+# original_tweet_without_reply_count_and_treatment: Number of original tweets
+# total_retweet_in_burst_count_and_treatment: Number of retweets
+# more_than_half_committer_burst_flag_and_treatment: Is from committers
+
+# Model IV in table 2
+model_all_new_commits_3_day = lmer(log(mentioned_repo_commit_from_new_coder_count_this_period +1)
+                            ~ post_period_flag
+                            + treatment_flag
+                            + treatment_and_post_flag
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                           ,REML = FALSE
+                           ,data = regression_data_3_day_no_outlier)
+
+vif(model_all_new_commits_3_day)
+summary(model_all_new_commits_3_day)
+r.squaredGLMM(model_all_new_commits_3_day)
+
+
+# Model V in table 2
+model_all_new_commits_3_day_tweet_features_and_size =  
+                            lmer(log(mentioned_repo_commit_from_new_coder_count_this_period + 1)
+                            ~ post_period_flag
+                            + treatment_flag
+
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+
+                            + more_than_half_hashtag_flag_and_treatment
+                            + burst_promotion_flag_and_treatment
+
+                            + log(twitter_total_like_count_of_burst_tweet_and_treatment + 1)
+                            + log(original_tweet_without_reply_count_and_treatment + 1)
+                            + log(total_retweet_in_burst_count_and_treatment + 1)
+
+
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                           ,control = lmerControl(optimizer ="Nelder_Mead")
+                           ,REML = FALSE
+                           ,data = regression_data_3_day_no_outlier)
+vif(model_all_new_commits_3_day_tweet_features_and_size)
+summary(model_all_new_commits_3_day_tweet_features_and_size)
+r.squaredGLMM(model_all_new_commits_3_day_tweet_features_and_size)
+
+# Model VI in table 2
+model_all_new_commits_3_day_with_tweet_features_size_and_author = lmer(log(mentioned_repo_commit_from_new_coder_count_this_period + 1)
+                            ~ post_period_flag
+                            + treatment_flag
+
+                            + log(repo_google_hit_overall_scale_treatment + 1)
+                            + repo_has_release_treatment_flag
+                            + repo_trending_treatment_flag
+                            + log(burst_duration_in_hours + 1)
+                            
+                            + more_than_half_hashtag_flag_and_treatment
+                            + burst_promotion_flag_and_treatment
+
+                            + log(twitter_total_like_count_of_burst_tweet_and_treatment + 1)
+                            + log(original_tweet_without_reply_count_and_treatment + 1)
+                            + log(total_retweet_in_burst_count_and_treatment + 1)
+
+
+                            + more_than_half_committer_burst_flag_and_treatment
+                            + (1 | time_cohort_effect)
+                            + (1 | repo_cohort_effect)
+                            ,REML = FALSE
+                            ,data = regression_data_3_day_no_outlier_author_set)
+
+vif(model_all_new_commits_3_day_with_tweet_features_size_and_author)
+summary(model_all_new_commits_3_day_with_tweet_features_size_and_author)
+r.squaredGLMM(model_all_new_commits_3_day_with_tweet_features_size_and_author)
+
+```
+
+### Compare attracted user versus non-attracted, but exposed user, data load and remove outliers (table 3, model VII)
+```{r}
+regression_data_attraction_comparison_exposed = read_csv('./data/regression_dif_committer_non_committer_downsample.csv', col_types = cols(repo_slug = col_character(), login = col_character(), attracted_burst_id_str = col_character()))
+
+regression_data_attraction_comparison_exposed$being_attracted_flag = as.logical(regression_data_attraction_comparison_exposed$being_attracted_flag)
+regression_data_attraction_comparison_exposed$collaborated_user_before = as.logical(regression_data_attraction_comparison_exposed$collaborated_user_before)
+regression_data_attraction_comparison_exposed$collaborated_user_before = as.logical(regression_data_attraction_comparison_exposed$collaborated_user_before)
+
+regression_data_ace_no_outlier = subset(regression_data_attraction_comparison_exposed, 
+                                                     developer_commit_count_in_history < exp(10.5)
+                                                  &  developer_git_tenure_in_days > exp(4)
+                                                  &  developer_git_tenure_in_days < exp(9)
+                                                  &  original_tweets_before_burst < exp(8)
+                                                  &  original_tweets_before_burst > 0
+                                                  &  retweet_tweets_before_burst > 0
+                                                  &  retweet_tweets_before_burst < exp(8)
+                                                  &  developer_twitter_tenure_in_days > exp(4)
+                                                  &  mention_tweet_author_weight < exp(5)
+                                                )
+regression_data_ace_no_outlier$original_percentage = regression_data_ace_no_outlier$original_tweets_before_burst / (regression_data_ace_no_outlier$original_tweets_before_burst + regression_data_ace_no_outlier$retweet_tweets_before_burst) # the percentage of tweet being an original tweet (instead of a retweet of other tweets)
+regression_data_ace_no_outlier$total_tweet = regression_data_ace_no_outlier$original_tweets_before_burst + regression_data_ace_no_outlier$retweet_tweets_before_burst # the number of tweet posted by the user, including both retweet and original tweet
+
+
+```
+### Compare attracted user versus non-attracted, but exposed user, model (table 3, model VII)
+```{r}
+# this are three difference versinos of model VIII in table 3, we report no_random_effect model result in our paper, however, the model with different random effects have different significant level (although most of the effect direction is the same), see section 6 in the paper for our interpretation of the result.
+
+
+# Variable name in the model and its name in the paper:
+#
+# developer_git_tenure_in_days: GitHub tenure
+# developer_commit_count_in_history: GitHub commits
+# collaborated_user_before: Has GitHub collab
+# developer_twitter_tenure_in_days: Twitter tenure
+# total_tweet: Num. tweets
+# original_percentage: Ratio original tweets
+
+m_compare_attracted_verse_non_attracted_no_random_effect = glm(being_attracted_flag~
+             log(developer_git_tenure_in_days + 1)
+            + log(developer_commit_count_in_history + 1)
+            + as.logical(collaborated_user_before)
+            + log(developer_twitter_tenure_in_days + 1)
+            + log(total_tweet + 1)
+            + original_percentage
+            ,family = binomial()
+            ,data = regression_data_ace_no_outlier)
+vif(m_compare_attracted_verse_non_attracted_no_random_effect)
+summary(m_compare_attracted_verse_non_attracted_no_random_effect)
+r.squaredGLMM(m_compare_attracted_verse_non_attracted_no_random_effect)
+
+
+m_compare_attracted_verse_non_attracted_repo_random_effect = glmer(being_attracted_flag~
+             scale(log(developer_git_tenure_in_days + 1))
+            + scale(log(developer_commit_count_in_history + 1))
+            + as.logical(collaborated_user_before)
+            + scale(log(developer_twitter_tenure_in_days + 1))
+            + scale(log(total_tweet + 1))
+            + scale(original_percentage)
+            + (1|repo_slug)
+            ,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5))
+            ,family = binomial()
+            ,data = regression_data_ace_no_outlier)
+vif(m_compare_attracted_verse_non_attracted_repo_random_effect)
+summary(m_compare_attracted_verse_non_attracted_repo_random_effect)
+r.squaredGLMM(m_compare_attracted_verse_non_attracted_repo_random_effect)
+
+
+m_compare_attracted_verse_non_attracted_developer_random_effect = glmer(being_attracted_flag~
+             scale(log(developer_git_tenure_in_days + 1))
+            + scale(log(developer_commit_count_in_history + 1))
+            + as.logical(collaborated_user_before)
+            + scale(log(developer_twitter_tenure_in_days + 1))
+            + scale(log(total_tweet + 1))
+            + scale(original_percentage)
+            + (1|login)
+            ,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000))
+            ,family = binomial()
+            ,data = regression_data_ace_no_outlier)
+vif(m_compare_attracted_verse_non_attracted_developer_random_effect)
+summary(m_compare_attracted_verse_non_attracted_developer_random_effect)
+r.squaredGLMM(m_compare_attracted_verse_non_attracted_developer_random_effect)
+
+m_compare_attracted_verse_non_attracted_complete_random_effect = glmer(being_attracted_flag~
+             log(developer_git_tenure_in_days + 1)
+            + log(developer_commit_count_in_history + 1)
+            + as.logical(collaborated_user_before)
+            + log(developer_twitter_tenure_in_days + 1)
+            + log(total_tweet + 1)
+            + original_percentage
+            + (1|login)
+            + (1|repo_slug)
+            ,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000))
+            ,family = binomial()
+            ,data = regression_data_ace_no_outlier)
+vif(m_compare_attracted_verse_non_attracted_complete_random_effect)
+summary(m_compare_attracted_verse_non_attracted_complete_random_effect)
+r.squaredGLMM(m_compare_attracted_verse_non_attracted_complete_random_effect)
+
+
+```
+
+
+
+### Compare tweet-attracted developer versus developers attracted otherwise, load data (table 3, model VIII)
+```{r}
+
+
+regression_data_attracted_user_comparsion = read_csv('./data/regression_dif_tw_non_tw.csv', col_types = cols(repo_slug = col_character(), login = col_character()))
+
+# Remove high-leverage points in the sample
+regression_data_auc_no_outlier = subset(regression_data_attracted_user_comparsion, project_age_in_days < exp(9)
+                                  & project_age_in_days > exp(2)
+                                  & project_commit_size > exp(2)
+                                  & project_human_developer_size > exp(0.5)
+                                  & developer_commit_count_in_history > exp(1)
+                                  & developer_commit_count_in_history < exp(11)
+                                  & developer_tenure_in_days > exp(4.5)
+                                  & developer_tenure_in_days < exp(9)
+                                  & commit_within_30_day < exp(3)
+                                  & commit_within_90_day < exp(3.5)
+                                  & commit_within_180_day < exp(4)
+                                  & commit_within_360_day < exp(4)
+                                  & collaboration_weight < exp(6)
+                                  & mention_tweet_author_weight < exp(4)
+                                  & same_login_attracted_to_same_repo_flag == 0 # indicating whether we detect the same user attracted to the same repo by multiple bursts (e.g. several tweet bursts mention the same repo at similar time, each of them are likely to attract new committers), in that case it would be complicated to model those users as we cannot be certain which tweet burst attract them, we remove all those tweets in our sample
+                                  )
+
+```
+
+### Compare tweet-attracted developer versus developers attracted otherwise, models (table 3, model VIII)
+```{r}
+# this are three difference versinos of model VIII in table 3, we report no_random_effect model result in our paper, but all three models have generally similar effect
+
+
+# Variable name in the model and its name in the paper:
+# 
+# project_age_in_days: Project age
+# project_human_developer_size: Project contribs
+# project_commit_size: Project commits
+# developer_tenure_in_days: GitHub tenure
+# developer_commit_count_in_history: GitHub commits
+# collaborated_user_before: Has GitHub collab
+# one_hop_flag: Has Twitter interact
+
+
+model_attracted_user_comparison_no_random_effect = lm(log(commit_within_30_day + 1)~
+             log(project_age_in_days + 1)
+           + log(project_human_developer_size + 1)
+           + log(project_commit_size + 1)
+           + log(developer_tenure_in_days + 1)
+           + log(developer_commit_count_in_history + 1)
+           + as.logical(collaborated_user_before)
+           + as.logical(one_hop_flag)
+           , data = regression_data_auc_no_outlier)
+
+vif(model_attracted_user_comparison_no_random_effect)
+summary(model_attracted_user_comparison_no_random_effect)
+r.squaredGLMM(model_attracted_user_comparison_no_random_effect)
+
+
+model_attracted_user_comparison_developer_random_effect = lmer(log(commit_within_30_day + 1)~
+             log(project_age_in_days + 1)
+           + log(project_human_developer_size + 1)
+           + log(project_commit_size + 1)
+           + log(developer_tenure_in_days + 1)
+           + log(developer_commit_count_in_history + 1)
+           + as.logical(collaborated_user_before)
+           + as.logical(one_hop_flag)
+           + (1|login)
+           , data = regression_data_auc_no_outlier)
+
+vif(model_attracted_user_comparison_developer_random_effect)
+summary(model_attracted_user_comparison_developer_random_effect)
+r.squaredGLMM(model_attracted_user_comparison_developer_random_effect)
+
+
+model_attracted_user_comparison_complete_random_effects = lmer(log(commit_within_30_day + 1)~
+             log(project_age_in_days + 1)
+           + log(project_human_developer_size + 1)
+           + log(project_commit_size + 1)
+           + log(developer_tenure_in_days + 1)
+           + log(developer_commit_count_in_history + 1)
+           + as.logical(collaborated_user_before)
+           + as.logical(one_hop_flag)
+           + (1|login)
+           + (1|repo_slug)
+           , data = regression_data_auc_no_outlier)
+vif(model_attracted_user_comparison_complete_random_effects)
+summary(model_attracted_user_comparison_complete_random_effects)
+r.squaredGLMM(model_attracted_user_comparison_complete_random_effects)
+```
+
+
+
+
+
+
+### Survival analysis removing outliers (table 3, model IX)
+```{r}
+
+survival_data = read_csv('./data/survival_dif_tw_non_tw.csv')
+
+survival_data_no_outlier = subset(survival_data, project_age_in_days < exp(9)
+                                            &    project_age_in_days > exp(2)
+                                            &    project_human_developer_size > exp(0.5)
+                                            &    project_commit_size > exp(1)
+                                            &    developer_commit_count_in_history > exp(1)
+                                            &    developer_commit_count_in_history < exp(11)
+                                            &    developer_tenure_in_days > exp(4)
+                                            &    developer_tenure_in_days < exp(9)
+                                            &    mention_tweet_author_weight < exp(4)
+                                            &    collaboration_weight < exp(6)
+                                            &    same_login_attracted_to_same_repo_flag == 0 # indicating whether we detect the same user attracted to the same repo by multiple bursts (e.g. several tweet bursts mention the same repo at similar time, each of them are likely to attract new committers), in that case it would be complicated to model those users as we cannot be certain which tweet burst attract them, we remove all those tweets in our sample
+                                          
+
+                                  )
+
+```
+
+### Survival analysis model (table 3, model IX)
+
+```{r}
+# this are three difference versinos of model IX in table 3, we report no_random_effect model result in our paper, but all three models have generally similar effect
+
+# Variable name in the model and its name in the paper:
+# 
+# project_age_in_days: Project age
+# project_human_developer_size: Project contribs
+# project_commit_size: Project commits
+# developer_tenure_in_days: GitHub tenure
+# developer_commit_count_in_history: GitHub commits
+# collaborated_user_before: Has GitHub collab
+# one_hop_flag: Has Twitter interact
+cox_no_random_effects <- coxph(Surv(survival_time, censor_status) ~ 
+                                                log(project_age_in_days + 1)
+                                                + log(project_human_developer_size + 1)
+                                                + log(project_commit_size + 1)
+                                                + log(developer_tenure_in_days + 1)
+                                                + log(developer_commit_count_in_history + 1)
+                                                + as.logical(collaborated_user_before)
+                                                + as.logical(one_hop_flag)
+                                                , data = survival_data_no_outlier)
+
+summary(cox_no_random_effects)
+
+
+cox_developer_random_effect <- coxme(Surv(survival_time, censor_status) ~ 
+                                                log(project_age_in_days + 1)
+                                                + log(project_human_developer_size + 1)
+                                                + log(project_commit_size + 1)
+                                                + log(developer_tenure_in_days + 1)
+                                                + log(developer_commit_count_in_history + 1)
+                                                + as.logical(collaborated_user_before)
+                                                + as.logical(one_hop_flag)
+                                                + (1|login)
+                                                , data = survival_data_no_outlier)
+
+summary(cox_developer_random_effect)
+
+cox_repo_random_effect <- coxme(Surv(survival_time, censor_status) ~ 
+                                                log(project_age_in_days + 1)
+                                                + log(project_human_developer_size + 1)
+                                                + log(project_commit_size + 1)
+                                                + log(developer_tenure_in_days + 1)
+                                                + log(developer_commit_count_in_history + 1)
+                                                + as.logical(collaborated_user_before)
+                                                + as.logical(one_hop_flag)
+                                                + (1|repo_slug)
+                                                , data = survival_data_no_outlier)
+
+summary(cox_repo_random_effect)
+```
+
+
+### Parallel trend plots (Appendix figure 2)
+```{r}
+
+parallel_star = read_csv('./data/parallel_star.csv')
+parallel_commit = read_csv('./data/parallel_commit.csv')
+
+
+ggplot(parallel_star, aes(x = relative_hour)) +                    
+  geom_line(aes(y=control_average_star, colour="control"), size = 1) + 
+  geom_line(aes(y=treatment_average_star, colour="treatment"), size = 1)  + xlab('Relative Hour') + ylab('Average star')+ scale_color_manual(values = c(
+    'treatment' = 'red',
+    'control' = 'green')) + theme(legend.position = c(0.86, 0.90),
+                                  axis.text=element_text(size=16),
+                                  axis.title=element_text(size=20),
+                                  legend.title = element_blank(),
+                                  legend.text = element_text(size=18))
+ggsave("./figure/Star_Hour_Control_Treatment.pdf") # plot figure 2(a)
+
+
+ggplot(parallel_commit, aes(x = relative_day)) +                    
+  geom_line(aes(y=treatment_average_new_commit, colour="treatment"), size = 1)+
+  geom_line(aes(y=control_average_new_commit, colour="control"), size = 1) + 
+  xlab('Relative Day') + ylab('Average new committer') +   scale_color_manual(values = c(
+    'treatment' = 'red',
+    'control' = 'green')) + theme(legend.position = c(0.86, 0.90),
+                                  axis.text=element_text(size=16),
+                                  axis.title=element_text(size=20),
+                                  legend.title = element_blank(),
+                                  legend.text = element_text(size=18))
+ggsave("./figure/Committer_Day_Control_Treatment.pdf") # plot figure 2(b)
+
+
+```
