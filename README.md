@@ -1,8 +1,8 @@
 # Overview
-This research artifact accompanies our ICSE 2022 paper "'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors". If you use the artifact, please consider citing:
+This research artifact accompanies our ICSE 2021 paper "'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors". If you use the artifact, please consider citing:
 
 
-      @inproceedings{Fang2022,
+      @inproceedings{Fang2021,
         author = {Fang, Hongbo and 
             Lamba, Hemank and 
             Herbsleb, James and 
@@ -10,7 +10,7 @@ This research artifact accompanies our ICSE 2022 paper "'This Is Damn Slick!' Es
         title = {'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors},
         booktitle = {Proceedings of the 44th International Conference on Software Engineering (ICSE) 2022, Pittsburgh, USA},
         organization = {IEEE},
-        year = {2022},
+        year = {2021},
       }
 
 
