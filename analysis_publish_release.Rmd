@@ -571,7 +571,7 @@ ggplot(parallel_star, aes(x = relative_hour)) +
   geom_line(aes(y=control_average_star, colour="control"), size = 1) + 
   geom_line(aes(y=treatment_average_star, colour="treatment"), size = 1)  + xlab('Relative Hour') + ylab('Average star')+ scale_color_manual(values = c(
     'treatment' = 'red',
-    'control' = 'green')) + theme(legend.position = c(0.86, 0.90),
+    'control' = 'blue')) + theme(legend.position = c(0.86, 0.90),
                                   axis.text=element_text(size=16),
                                   axis.title=element_text(size=20),
                                   legend.title = element_blank(),
@@ -584,7 +584,7 @@ ggplot(parallel_commit, aes(x = relative_day)) +
   geom_line(aes(y=control_average_new_commit, colour="control"), size = 1) + 
   xlab('Relative Day') + ylab('Average new committer') +   scale_color_manual(values = c(
     'treatment' = 'red',
-    'control' = 'green')) + theme(legend.position = c(0.86, 0.90),
+    'control' = 'blue')) + theme(legend.position = c(0.86, 0.90),
                                   axis.text=element_text(size=16),
                                   axis.title=element_text(size=20),
                                   legend.title = element_blank(),
