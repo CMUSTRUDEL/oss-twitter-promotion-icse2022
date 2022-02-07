@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/435349658.svg)](https://zenodo.org/badge/latestdoi/435349658)
+
 # Overview
 This research artifact accompanies our ICSE 2022 paper "'This Is Damn Slick!' Estimating the Impact of Tweets on Open Source Project Popularity and New Contributors". If you use the artifact, please consider citing:
 
