@@ -79,8 +79,8 @@ regression_data[regression_data$treatment_and_post_flag == FALSE,]$more_than_hal
 
 
 # Create time-cohort and repo-cohort effects
-regression_data$time_cohort_effect = paste(as.character(regression_data$time_day_index), as.character(regression_data$burst_id), sep = '-')
-regression_data$repo_cohort_effect = paste(as.character(regression_data$repo_slug), as.character(regression_data$burst_id), sep = '-')
+regression_data$time_cohort_effect = paste(as.character(regression_data$post_period_flag), as.character(regression_data$burst_id), sep = '-')
+regression_data$repo_cohort_effect = paste(as.character(regression_data$treatment_flag), as.character(regression_data$burst_id), sep = '-')
 
 # Select 3-day as the length of pre/post treatment period(i.e. we measure the number of star and new committers change 3-day before and 3-day after the tweet treatment)
 regression_data_3_day_period = subset(regression_data, period_duration == 'Standard_Period')
