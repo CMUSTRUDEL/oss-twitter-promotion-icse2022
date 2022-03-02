@@ -368,22 +368,6 @@ vif(m_compare_attracted_verse_non_attracted_developer_random_effect)
 summary(m_compare_attracted_verse_non_attracted_developer_random_effect)
 r.squaredGLMM(m_compare_attracted_verse_non_attracted_developer_random_effect)
 
-m_compare_attracted_verse_non_attracted_complete_random_effect = glmer(being_attracted_flag~
-             log(developer_git_tenure_in_days + 1)
-            + log(developer_commit_count_in_history + 1)
-            + as.logical(collaborated_user_before)
-            + log(developer_twitter_tenure_in_days + 1)
-            + log(total_tweet + 1)
-            + original_percentage
-            + (1|login)
-            + (1|repo_slug)
-            ,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000))
-            ,family = binomial()
-            ,data = regression_data_ace_no_outlier)
-vif(m_compare_attracted_verse_non_attracted_complete_random_effect)
-summary(m_compare_attracted_verse_non_attracted_complete_random_effect)
-r.squaredGLMM(m_compare_attracted_verse_non_attracted_complete_random_effect)
-
 
 ```
 
@@ -410,7 +394,7 @@ regression_data_auc_no_outlier = subset(regression_data_attracted_user_comparsio
                                   & commit_within_360_day < exp(4)
                                   & collaboration_weight < exp(6)
                                   & mention_tweet_author_weight < exp(4)
-                                  & same_login_attracted_to_same_repo_flag == 0 # indicating whether we detect the same user attracted to the same repo by multiple bursts (e.g. several tweet bursts mention the same repo at similar time, each of them are likely to attract new committers), in that case it would be complicated to model those users as we cannot be certain which tweet burst attract them, we remove all those tweets in our sample
+                                  & same_login_attracted_to_same_repo_flag == 0 # indicating whether we detect the same user attracted to the same repo by multiple bursts (e.g. several tweet bursts mention the same repo at similar time, each of them are likely to attract new committers). In that case it would be complicated to model those users as we cannot be certain which tweet burst attract them, we thus remove all those tweets in our sample
                                   )
 
 ```
